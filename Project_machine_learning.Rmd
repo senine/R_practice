@@ -1,0 +1,82 @@
+---
+title: 'Project: Practical Machine Learning'
+author: "Fan Zhang"
+date: "September 21, 2014"
+output: html_document
+---
+
+I select Random Forests as the predicting method for two reasons:
+* given the data set, we are using both numerical and categorical variable for classification;
+* Random Forests is one of the two most accurate methods for such purposes.
+
+```{r,echo=FALSE}
+# load data
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv","train.csv",method = "curl")
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv","test.csv",method = "curl")
+
+training <- read.csv("train.csv", head = T)
+test <- read.csv("test.csv", head = T)
+```
+
+As a general rule of machine learning, I selected as many meaningful variables as possible, as the predictors in the model. I ran the codes at follow to remove variables with too many NAs and blanks, after which 59 variables remained (including "classe", the outcome variable). The same treatment was applied to test data set as well.
+
+
+```{r}
+na.count <- apply(is.na(training) | training == "", 2,sum)
+training <- training[,names(na.count[na.count < 19000])][,-1] # remove the row number
+test <- test[,colnames(test) %in% names(na.count[na.count < 19000])] [,-1] # remove the row number
+colnames(training)
+```
+
+Then I used randomForest() in randomForest package to train the data.
+
+```{r}
+library(randomForest)
+set.seed(1234)
+fit <- randomForest(classe~., ntree = 300, importance = T, proximity = T, data = training)
+```
+
+From the second importance measures, we can examine the total decrease in node impurities from splitting on the variable (higher means more important). It is noted that compared to other predictors, cvtd_timestamp and are of more importance.
+
+```{r}
+importance(fit)
+```
+
+Hence I plotted to check if the relationship is valid.
+
+```{r}
+library(ggplot2)
+qplot(classe,cvtd_timestamp, data = training, col = raw_timestamp_part_1, alpha = .2)
+```
+
+From the plot, a repeated pattern is observed. Measured by cvtd\_timestamp and raw\_timestamp\_part_1, during an interval of 2 minutes, either 1 or 2 records are sequentially assigned to A - E classes, the pattern repeated every 7 or 8 records. In pratical sense, such a pattern may result from the timely mismatch of the steamlines. That is, though multiple steamlines producing works simultaneously with same speed, at they may not started at the same time, so that the time lag is observed and repeated.   
+
+We then checked the fit result.
+
+```{r}
+fit
+```
+
+Noted that OOB (our *out of sample error*) is about .007%, which is highly accurate. However, overfitting is possible; we use rfcv(), a cross validation method, to ensure our structure is valid.
+
+
+```{r}
+Fit <- rfcv(training[,-59],training$classe, ntree = 300)# random forest with cross validation
+
+Fit$error.cv
+with(Fit, plot(n.var, error.cv, log="x", type="o", lwd=2))
+```
+We are now certain that at least number of variables tried at each split is unchanged from the orignial model. Since the same seed is used, we can ensure that the whole tree structure is unaltered as well. Hence the OOB is validated.
+
+Finally we print the prediction.
+```{r}
+test$classe <- "A"
+data <- rbind(training,test) # to get rid of class mismatch error
+
+pred <- as.character(predict(fit, newdata = tail(data, n = 20)))
+pred
+```
+
+
+
+
